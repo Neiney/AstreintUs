@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">mail.entreprise.example</domain>
+        <pin-set expiration="2027-01-01">
+            <!-- Primary certificate pin — replace with actual value -->
+            <pin digest="SHA-256">47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=</pin>
+            <!-- Backup pin (intermediate CA or backup cert) — replace with actual value -->
+            <pin digest="SHA-256">k2v657xUM4RdHgxpKBErR74mfeKU8vg3/6KGSodNQwA=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>

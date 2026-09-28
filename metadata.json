@@ -1,0 +1,6 @@
+{
+  "name": "Asteintus",
+  "description": "Persistent on-call alert and IMAP client for technical teams",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
