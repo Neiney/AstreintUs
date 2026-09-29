@@ -3,22 +3,53 @@ package com.example
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.util.Log
 
 class AsteintusApp : Application() {
 
     lateinit var appContainer: AppContainer
         private set
 
+    private val restrictionsReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED) {
+                Log.i("AsteintusApp", "MDM Application Restrictions changed by enterprise policy.")
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         com.example.util.CrashReporter.init(this)
+
+        try {
+            System.loadLibrary("sqlcipher")
+        } catch (e: Throwable) {
+            Log.w("AsteintusApp", "SQLCipher native library notice: ${e.message}")
+        }
+
         instance = this
         appContainer = AppContainer(this)
         createNotificationChannels()
+
+        // Register receiver for MDM restrictions change
+        try {
+            val filter = IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(restrictionsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(restrictionsReceiver, filter)
+            }
+        } catch (e: Exception) {
+            Log.w("AsteintusApp", "Failed to register MDM restrictions receiver", e)
+        }
     }
 
     private fun createNotificationChannels() {
@@ -46,7 +77,7 @@ class AsteintusApp : Application() {
                 )
             }
 
-            // Low importance persistent on-call status channel
+            // Persistent on-call status channel
             val onCallStatusChannel = NotificationChannel(
                 CHANNEL_ON_CALL_STATUS,
                 "On-Call Active Status",

@@ -47,15 +47,15 @@ class CrashReportActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        val crashInfo = CrashReporter.getLastCrash(this)
         val errorType = intent.getStringExtra(EXTRA_ERROR_TYPE)
-            ?: CrashReporter.getLastCrash(this)?.errorType
+            ?: crashInfo?.errorType
             ?: "Unknown Error"
         val errorMsg = intent.getStringExtra(EXTRA_ERROR_MSG)
-            ?: CrashReporter.getLastCrash(this)?.errorMessage
+            ?: crashInfo?.errorMessage
             ?: "No error description provided"
-        val stackTrace = intent.getStringExtra(EXTRA_STACK_TRACE)
-            ?: CrashReporter.getLastCrash(this)?.stackTrace
-            ?: "No stack trace available"
+        val stackTrace = crashInfo?.stackTrace
+            ?: "No stack trace available (sanitized / short retention)"
 
         setContent {
             MyApplicationTheme {

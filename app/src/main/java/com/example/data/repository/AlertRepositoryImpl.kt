@@ -32,6 +32,10 @@ class AlertRepositoryImpl(
         return alertDao.getPendingAlertsSync().map { it.toDomain() }
     }
 
+    override suspend fun getActiveAlertsSync(): List<Alert> {
+        return alertDao.getActiveAlertsSync().map { it.toDomain() }
+    }
+
     override fun getAlertById(id: Long): Flow<Alert?> {
         return alertDao.getAlertById(id).map { it?.toDomain() }
     }
@@ -40,27 +44,45 @@ class AlertRepositoryImpl(
         return alertDao.getAlertByIdSync(id)?.toDomain()
     }
 
-    override suspend fun triggerAlertForMail(mailId: Long): Result<Alert> {
+    override suspend fun triggerAlertForMail(mailId: Long, dedupKey: String?, reason: String?): Result<Alert> {
         val mail = mailDao.getMailByIdSync(mailId)
             ?: return Result.failure(IllegalArgumentException("Mail not found for id $mailId"))
 
-        val existingAlert = alertDao.getAlertByMailUid(mail.uid)
-        if (existingAlert != null) {
-            return Result.success(existingAlert.toDomain())
+        // Deduplication check
+        val effectiveDedup = dedupKey ?: "uid:${mail.uidValidity}:${mail.uid}"
+        val existingDedup = alertDao.getAlertByDedupKey(effectiveDedup)
+        if (existingDedup != null) {
+            // Already created for this deduplication key
+            return Result.success(existingDedup.toDomain())
+        }
+
+        val existingByUid = alertDao.getAlertByMailUid(mail.uid)
+        if (existingByUid != null) {
+            return Result.success(existingByUid.toDomain())
         }
 
         val entity = AlertEventEntity(
             mailId = mail.id,
             mailUid = mail.uid,
+            uidValidity = mail.uidValidity,
+            mailbox = mail.mailbox,
             senderName = mail.senderName,
             senderAddress = mail.senderAddress,
             subject = mail.subject,
             receivedTime = mail.receivedDate,
-            status = AlertStatus.PENDING.name
+            status = AlertStatus.PENDING.name,
+            incidentId = mail.incidentId,
+            dedupKey = effectiveDedup,
+            qualificationReason = reason ?: "Qualifié conforme"
         )
 
         val id = alertDao.insertAlert(entity)
         return Result.success(entity.copy(id = id).toDomain())
+    }
+
+    override suspend fun muteAlert(alertId: Long): Result<Unit> {
+        alertDao.updateAlertStatus(alertId, AlertStatus.MUTED.name)
+        return Result.success(Unit)
     }
 
     override suspend fun acknowledgeAlert(alertId: Long): Result<Unit> {
@@ -99,6 +121,8 @@ class AlertRepositoryImpl(
             id = id,
             mailId = mailId,
             mailUid = mailUid,
+            uidValidity = uidValidity,
+            mailbox = mailbox,
             senderName = senderName,
             senderAddress = senderAddress,
             subject = subject,
@@ -106,7 +130,10 @@ class AlertRepositoryImpl(
             status = domainStatus,
             acknowledgedTime = acknowledgedTime,
             reactionTimeSeconds = reactionTimeSeconds,
-            snoozedUntil = snoozedUntil
+            snoozedUntil = snoozedUntil,
+            incidentId = incidentId,
+            dedupKey = dedupKey,
+            qualificationReason = qualificationReason
         )
     }
 }

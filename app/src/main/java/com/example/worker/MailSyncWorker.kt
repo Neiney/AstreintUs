@@ -5,16 +5,21 @@ import android.content.Intent
 import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.AsteintusApp
-import com.example.domain.model.MailStatus
 import com.example.service.AlertService
 import java.util.concurrent.TimeUnit
 
+/**
+ * MailSyncWorker acts strictly as a watchdog, safety net, and health auditor.
+ * It is NOT the primary low-latency mechanism (which is IMAP IDLE in AlertService).
+ */
 class MailSyncWorker(
     private val context: Context,
     workerParams: WorkerParameters
@@ -26,52 +31,50 @@ class MailSyncWorker(
         val mailRepository = app.appContainer.mailRepository
         val alertRepository = app.appContainer.alertRepository
 
-        // Outside of on-call mode, synchronisation is suspended
         if (!prefs.isOnCallActive()) {
-            Log.d(TAG, "On-call mode is inactive. Skipping sync.")
+            Log.d(TAG, "On-call mode is inactive. Watchdog skipping.")
             return Result.success()
         }
 
         val config = prefs.getAccountConfig()
         if (!config.isConfigured) {
-            Log.w(TAG, "Account is not configured. Skipping sync.")
+            Log.w(TAG, "Account is not configured. Watchdog skipping.")
             return Result.success()
         }
 
         try {
-            Log.d(TAG, "Starting IMAP mail synchronization...")
+            Log.d(TAG, "Watchdog execution: checking health and reactive fallback...")
 
-            // Check and reactivate any snoozed alerts that expired
+            // 1. Reactivate expired snoozes
             val reactivatedCount = alertRepository.checkAndReactivateSnoozes()
             if (reactivatedCount > 0) {
-                Log.d(TAG, "Reactivated $reactivatedCount expired snoozed alerts.")
+                Log.d(TAG, "Watchdog reactivated $reactivatedCount expired snoozes.")
             }
 
-            // Fetch and save new mails
-            val fetchResult = mailRepository.fetchAndSaveNewMails()
-            if (fetchResult.isSuccess) {
-                val newMails = fetchResult.getOrDefault(emptyList())
-                Log.d(TAG, "Fetched ${newMails.size} new emails.")
+            // 2. Verify if AlertService is running and healthy
+            val lastSync = prefs.getLastHealthySyncTime()
+            val syncAgeSeconds = if (lastSync > 0) (System.currentTimeMillis() - lastSync) / 1000L else 9999L
 
-                for (mail in newMails) {
-                    val alertResult = alertRepository.triggerAlertForMail(mail.id)
-                    if (alertResult.isSuccess) {
-                        val alert = alertResult.getOrThrow()
-                        Log.i(TAG, "Triggering critical alert for mail UID ${mail.uid} (Alert #${alert.id})")
-                        // Trigger alert service
-                        val alertIntent = Intent(context, AlertService::class.java).apply {
-                            action = AlertService.ACTION_TRIGGER_ALERT
-                            putExtra(AlertService.EXTRA_ALERT_ID, alert.id)
-                            putExtra(AlertService.EXTRA_MAIL_ID, mail.id)
-                        }
-                        context.startForegroundService(alertIntent)
+            if (syncAgeSeconds > 120L) {
+                Log.w(TAG, "IMAP IDLE sync age is ${syncAgeSeconds}s (> 120s). Executing fallback sync.")
+                val fetchResult = mailRepository.fetchAndSaveNewMails()
+                if (fetchResult.isSuccess) {
+                    val newMails = fetchResult.getOrDefault(emptyList())
+                    for (mail in newMails) {
+                        alertRepository.triggerAlertForMail(mail.id)
                     }
                 }
+
+                // Ensure foreground service is running
+                val serviceIntent = Intent(context, AlertService::class.java).apply {
+                    action = AlertService.ACTION_START_ON_CALL_NOTIFICATION
+                }
+                context.startForegroundService(serviceIntent)
             } else {
-                Log.e(TAG, "Failed to fetch mails: ${fetchResult.exceptionOrNull()?.message}")
+                Log.d(TAG, "IMAP IDLE is healthy (last sync ${syncAgeSeconds}s ago). No fallback sync required.")
             }
 
-            // Check if there are any unhandled pending alerts that need ringing
+            // 3. Check for any unhandled pending alerts that need attention
             val pendingAlerts = alertRepository.getPendingAlertsSync()
             if (pendingAlerts.isNotEmpty() && !AlertService.isRinging()) {
                 val firstPending = pendingAlerts.first()
@@ -83,15 +86,14 @@ class MailSyncWorker(
                 context.startForegroundService(alertIntent)
             }
 
-            // Enforce GDPR Art. 5 Data Retention policy at the end of sync cycle
+            // 4. GDPR Art. 5 Data Retention policy purge (30 days)
             enforceDataRetention(app.appContainer.appDatabase)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error in MailSyncWorker execution", e)
+            Log.e(TAG, "Error in Watchdog Worker execution", e)
         } finally {
-            // If on-call mode is still active, schedule the next sync in 60 seconds
             if (prefs.isOnCallActive()) {
-                scheduleNextSync(context)
+                scheduleNextWatchdog(context)
             }
         }
 
@@ -103,12 +105,14 @@ class MailSyncWorker(
         val threshold = System.currentTimeMillis() - retentionMillis
         val deletedMails = database.mailDao().deleteMailsOlderThan(threshold)
         val deletedAlerts = database.alertDao().deleteAlertsOlderThan(threshold)
-        Log.i("DataRetention", "Purged $deletedMails mails and $deletedAlerts alerts older than 30 days.")
+        if (deletedMails > 0 || deletedAlerts > 0) {
+            Log.i("DataRetention", "GDPR Purge: deleted $deletedMails mails and $deletedAlerts alerts older than 30 days.")
+        }
     }
 
     companion object {
-        private const val TAG = "MailSyncWorker"
-        const val WORK_NAME = "AsteintusSyncWork"
+        private const val TAG = "MailSyncWatchdog"
+        const val WORK_NAME = "AsteintusWatchdogWork"
 
         fun startPeriodicSync(context: Context) {
             val constraints = Constraints.Builder()
@@ -126,14 +130,14 @@ class MailSyncWorker(
             )
         }
 
-        fun scheduleNextSync(context: Context) {
+        fun scheduleNextWatchdog(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val request = OneTimeWorkRequestBuilder<MailSyncWorker>()
                 .setConstraints(constraints)
-                .setInitialDelay(60, TimeUnit.SECONDS)
+                .setInitialDelay(15, TimeUnit.MINUTES)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(

@@ -1,493 +1,409 @@
-# 🚨 Asteintus (ex-OnCallMail)
+# 🚨 Asteintus — Version 0.9.0.0
 
-> **Application mobile Android native d'astreinte technique (On-Call) et client d'alerte IMAP haute priorité pour équipes d'ingénierie, SRE, DevOps et administrateurs d'infrastructures critiques.**
+> **Récepteur d'astreinte Android haute fiabilité (< 3 min SLA) pour flottes gérées par MDM, sans webhook ni push propriétaire, basé sur une boîte IMAP strictement contrôlée.**
+
+[![Version](https://img.shields.io/badge/version-0.9.0.0-blue.svg)](https://github.com/)
+[![SLA](https://img.shields.io/badge/SLA-%3C%203%20minutes-success.svg)](https://github.com/)
+[![Protocol](https://img.shields.io/badge/Protocol-IMAP%20IDLE%20(RFC%202177)-orange.svg)](https://github.com/)
+[![Database](https://img.shields.io/badge/Storage-SQLCipher%20(AES--256)-green.svg)](https://github.com/)
+[![MDM](https://img.shields.io/badge/MDM-Android%20Enterprise%20Config-purple.svg)](https://github.com/)
 
 ---
 
 ## 📋 Table des matières
 
-1. [À quoi sert l'application ?](#-à-quoi-sert-lapplication-)
-2. [Fonctionnalités clés](#-fonctionnalités-clés)
-3. [Comment l'utiliser (Guide de prise en main)](#-comment-lutiliser-guide-de-prise-en-main)
-   - [1. Configuration du compte de messagerie (IMAP)](#1-configuration-du-compte-de-messagerie-imap)
-   - [2. Autorisations système requises](#2-autorisations-système-requises)
-   - [3. Activation du mode astreinte](#3-activation-du-mode-astreinte)
-   - [4. Réception et traitement d'une alerte critique](#4-réception-et-traitement-dune-alerte-critique)
-4. [Schémas d'Architecture & Conception Technique](#-schémas-darchitecture--conception-technique)
-   - [1. Schéma d'Architecture Globale (ASCII)](#1-schéma-darchitecture-globale-ascii)
-   - [2. Diagramme Logique (Clean Architecture + MVVM)](#2-diagramme-logique-clean-architecture--mvvm)
-   - [3. Moteur de Sonnerie & DND Bypass (ASCII)](#3-moteur-de-sonnerie--dnd-bypass-ascii)
-   - [4. Diagramme de Composants Android](#4-diagramme-de-composants-android)
-   - [5. Cycle de Vie d'un Incident & Machine à États (ASCII)](#5-cycle-de-vie-dun-incident--machine-à-états-ascii)
-   - [6. Diagramme de Séquence Chronologique](#6-diagramme-de-séquence-chronologique)
-5. [Sécurité et Confidentialité (RGPD)](#-sécurité-et-confidentialité-rgpd)
-   - [Pipeline de Sécurité Matérielle & Rétention (ASCII)](#pipeline-de-sécurité-matérielle--rétention-ascii)
-6. [Structure Détaillée du Projet](#-structure-détaillée-du-projet)
-7. [Stack Technologique](#-stack-technologique)
-8. [Compilation & Déploiement](#-compilation--déploiement)
+1. [Objectif cible & Contrat de Service (SLA)](#-objectif-cible--contrat-de-service-sla)
+2. [Changement d'Architecture Structurant (v0.9.0.0)](#-changement-darchitecture-structurant-v0900)
+3. [Schémas d'Architecture & Conception Technique](#-schémas-darchitecture--conception-technique)
+   - [1. Architecture Cible & Flux de Données (ASCII)](#1-architecture-cible--flux-de-données-ascii)
+   - [2. Moteur IMAP IDLE, DND Bypass & Réveil (ASCII)](#2-moteur-imap-idle-dnd-bypass--réveil-ascii)
+   - [3. Machine à États de Santé (Health State Machine)](#3-machine-à-états-de-santé-health-state-machine)
+   - [4. Cycle de Vie d'un Incident & Traçabilité (ASCII)](#4-cycle-de-vie-dun-incident--traçabilité-ascii)
+   - [5. Diagramme de Séquence Chronologique (Mermaid)](#5-diagramme-de-séquence-chronologique-mermaid)
+4. [Lots de Réalisation (Chantiers v0.9.0.0)](#-lots-de-réalisation-chantiers-v0900)
+   - [Lot 1 : Sécurisation des Données & Surface d'Attaque (SQLCipher, Sanitization)](#lot-1--sécurisation-des-données--surface-dattaque)
+   - [Lot 2 : Politique d'Éligibilité (`AlertPolicy`) & Déduplication](#lot-2--politique-déligibilité-alertpolicy--déduplication)
+   - [Lot 3 : Fiabilité SLA 3 Min & Télémétrie de Santé](#lot-3--fiabilité-sla-3-min--télémétrie-de-santé)
+   - [Lot 4 : Gestion d'Alerte Persistante (DB Single Source of Truth)](#lot-4--gestion-dalerte-persistante)
+   - [Lot 5 : Intégration MDM (Android Enterprise Restrictions)](#lot-5--intégration-mdm)
+5. [Guide d'Utilisation & Déploiement](#-guide-dutilisation--déploiement)
+6. [Structure du Projet](#-structure-du-projet)
+7. [Compilation & Installation](#-compilation--installation)
 
 ---
 
-## 🎯 À quoi sert l'application ?
+## 🎯 Objectif cible & Contrat de Service (SLA)
 
-Dans un environnement de production 24/7, les systèmes de supervision (Prometheus, Alertmanager, Datadog, Grafana, AWS CloudWatch, Zabbix, etc.) envoient fréquemment des notifications par email lors d'incidents critiques (P1/P2, pannes d'infrastructure, indisponibilité de bases de données, ruptures de SLA).
+### Contrat de service
+1. **Délai maximal garanti** : Lorsqu'un e-mail admissible est déposé dans le dossier IMAP d'astreinte dédié (ex. `INBOX/ONCALL`), l'application déclenche une alarme sonore locale à plein volume sur un terminal conforme en **moins de 3 minutes** (P95 visé < 60s).
+2. **Détection de rupture & Escalade secondaire** : Lorsque l'application ou l'appareil ne peut plus assurer cette capacité (perte réseau prolongée, suspension OS, anomalie), l'état passe en **`ESCALATING`** et l'outil d'alerting/supervision déclenche le **canal secondaire** (SMS, appel vocal, pager, second astreint).
 
-Cependant, les clients de messagerie traditionnels présentent des failles rédhibitoires pour les ingénieurs d'astreinte :
-* **Alertes inaudibles la nuit** : le mode « Ne pas déranger » (DND) ou le mode silencieux étouffe les notifications d'emails ordinaires.
-* **Notifications noyées** : les alertes d'urgence sont mélangées aux newsletters ou aux notifications secondaires.
-* **Absence d'acquittement formel** : rien n'oblige l'ingénieur à accuser réception ou à reporter l'alerte pour éviter qu'elle ne soit oubliée pendant son sommeil.
-
-**Asteintus** transforme votre smartphone en un véritable récepteur d'astreinte résilient :
-1. **Surveillance continue** : Interroge la boîte email d'alerte via le protocole IMAP sécurisé (SSL/TLS).
-2. **Alarme d'urgence prioritaire** : Dès qu'un incident est détecté, l'application déclenche une sonnerie stridente via le flux audio d'alarme système (`STREAM_ALARM`), capable d'outrepasser le mode « Ne pas déranger » (DND) et le mode silencieux.
-3. **Réveil de l'appareil & Plein Écran** : Allume automatiquement l'écran et affiche une interface d'urgence par-dessus l'écran verrouillé (`turnScreenOn`, `showWhenLocked`).
-4. **Acquittement & Snooze intelligent** : L'ingénieur peut couper la sonnerie pour analyser la situation à tête reposée (`Mute`), reporter l'alerte (`Snooze` à 5, 15 ou 30 minutes) ou l'acquitter définitivement (`Acknowledge`).
-5. **Accès sans friction** : Démarrage direct et ergonomique dès que l'appareil est déverrouillé (sans barrière biométrique redondante à l'ouverture, à l'instar d'applications comme Outlook).
+### Périmètre et hypothèses assumées
+* **Hors périmètre** : Garantir la réception si le terminal est éteint, hors réseau ou sans batterie.
+* **Aucun backend propriétaire** : Pas de serveur intermédiaire de notification push ni de webhook custom. Le serveur IMAP et le MDM d'entreprise restent les sources souveraines de données et de configuration.
+* **Accès utilisateur fluide** : L'accès à l'application est direct lorsque le téléphone est déverrouillé (sans barrière d'authentification biométrique redondante à l'ouverture, à l'image d'Outlook).
 
 ---
 
-## ✨ Fonctionnalités clés
+## ⚡ Changement d'Architecture Structurant (v0.9.0.0)
 
-| Fonctionnalité | Description |
-| :--- | :--- |
-| **Bascule d'Astreinte (1-Tap On-Call)** | Activez ou désactivez la surveillance en un geste grâce à l'interrupteur central. Hors astreinte, aucun processus d'arrière-plan ne tourne. |
-| **Alarme DND Bypass** | Flux audio système dédié `STREAM_ALARM` avec sonnerie en boucle et motifs de vibrations haptiques d'urgence. |
-| **Écran d'Urgence Plein Écran** | `AlertActivity` s'affiche immédiatement au premier plan, réveille l'appareil et passe outre le lockscreen. |
-| **Acquittement & Snooze Réactif** | Bouton « Mute » (coupe le son pour lire au calme), « Acknowledge » (ferme l'incident), ou « Snooze » (relance l'alarme si l'incident persiste après 5, 15 ou 30 min). |
-| **File d'Attente d'Alertes** | Gestion intelligente des tempêtes d'alertes : si plusieurs incidents surviennent simultanément, ils sont empilés et présentés séquentiellement. |
-| **Client IMAP Sécurisé** | Prise en charge universelle des serveurs IMAP (Gmail, Outlook/Office365, serveurs d'entreprise) avec SSL/TLS (port 993) ou STARTTLS. |
-| **Synchronisation WorkManager** | Synchronisation robuste en arrière-plan avec réarmement automatique toutes les 60 secondes pendant l'astreinte. |
-| **Reprise automatique au démarrage** | `OnCallReceiver` réactive la surveillance en cas de redémarrage inopiné du téléphone (`BOOT_COMPLETED`). |
-| **Stockage Chiffré & Keystore** | Mots de passe et identifiants chiffrés via `EncryptedSharedPreferences` appuyé sur le matériel sécurisé (Android Keystore). |
-| **Rétention RGPD (Storage Limitation)** | Purge automatique des courriels et des journaux d'audit de plus de 30 jours (Art. 5(1)(e) RGPD). |
-| **Historique & Traçabilité** | Journalisation complète de chaque alerte (horodatage de réception, date d'acquittement, statut, motif). |
-| **Crash Reporter Résilient** | Processus isolé (`:crash_reporter`) capturant les anomalies non gérées avec écran de diagnostic dédié. |
+Dans la version 0.9.0.0, **le mécanisme principal de réception n'est plus un polling périodique WorkManager**, mais une **connexion IMAP IDLE (RFC 2177) maintenue en permanence par un Foreground Service** (`AlertService`) pendant toute la durée de l'astreinte :
 
----
-
-## 🚀 Comment l'utiliser (Guide de prise en main)
-
-### 1. Configuration du compte de messagerie (IMAP)
-1. Lancez **Asteintus**.
-2. Rendez-vous dans **Paramètres** ⚙️ puis **Configuration du compte**.
-3. Renseignez les paramètres de connexion :
-   - **Adresse email** : l'adresse surveillée (ex. `oncall@votre-domaine.com`).
-   - **Hôte IMAP** : serveur de messagerie (ex. `imap.gmail.com`, `outlook.office365.com` ou votre serveur privé).
-   - **Port IMAP** : par défaut `993` pour SSL/TLS (ou `143` pour STARTTLS).
-   - **Nom d'utilisateur & Mot de passe** : vos identifiants (ou mot de passe d'application pour Gmail / Microsoft 365).
-   - **Type de sécurité** : `SSL/TLS` (fortement recommandé).
-4. Cliquez sur **Enregistrer & Tester la connexion**.
-
-### 2. Autorisations système requises
-Pour garantir qu'aucune alerte ne soit manquée :
-* **Notifications** : autorisez les notifications système (`POST_NOTIFICATIONS`).
-* **Optimisation de la batterie** : acceptez l'exemption d'optimisation de batterie (Doze Mode). Cela empêche Android de suspendre le worker d'Asteintus lorsque le smartphone est en veille prolongée.
-* **Affichage plein écran** : autorisez l'affichage par-dessus l'écran de verrouillage (`USE_FULL_SCREEN_INTENT`).
-
-### 3. Activation du mode astreinte
-* Sur l'écran principal, basculez l'interrupteur **« Activer l'astreinte »**.
-* Une notification d'état persistante apparaît dans votre barre de notifications, confirmant qu'Asteintus veille activement.
-* Dès cet instant, la boîte de réception est synchronisée toutes les 60 secondes. Vous pouvez également déclencher une synchronisation manuelle via le bouton d'actualisation 🔄.
-
-### 4. Réception et traitement d'une alerte critique
-Lorsqu'un incident survient :
-1. **L'alarme retentit** immédiatement au volume maximal et le téléphone vibre en boucle.
-2. L'écran de l'appareil s'allume automatiquement et affiche l'incident.
-3. Trois actions principales s'offrent à vous :
-   - 🔇 **Couper la sonnerie (Mute)** : interrompt la sonnerie et les vibrations pour analyser l'incident en silence sans le clore.
-   - ✉️ **Consulter le message** : ouvre le détail complet de l'email pour lire les logs, traces d'erreur et liens de remédiation.
-   - ⏰ **Reporter (Snooze)** : choisissez 5 min, 15 min ou 30 min. L'alerte se réveillera si le problème n'est pas résolu.
-   - ✅ **Acquitter (Acknowledge)** : confirme votre prise en charge et clôture l'alerte pour ce message.
+| Composant | Rôle v0.9.0.0 | Fréquence / Latence |
+| :--- | :--- | :--- |
+| **`AlertService` (IMAP IDLE)** | **Canal principal** : Maintient la socket SSL/TLS active avec le serveur IMAP, reçoit les notifications d'arrivée instantanées et déclenche l'alarme sans délai. | **Instantané** (< 5 à 15 secondes) |
+| **`MailSyncWorker` (WorkManager)** | **Filet de sécurité & Chien de garde (Watchdog)** : Vérifie la santé de la connexion IDLE, relance le service s'il a été tué, et purge les données de plus de 30 jours (RGPD). | **Toutes les 15 minutes** (Contrôle d'intégrité) |
+| **Android Enterprise MDM** | **Distribution & Verrouillage** : Injecte la politique d'astreinte (`AlertPolicy`), le serveur IMAP et le dossier cible via `RestrictionsManager`. | Déploiement centralisé |
+| **Canal Secondaire** | **Secours automatique** : Prend le relais dès que l'application signale un état `ESCALATING` (SLA compromis > 180s). | Dès rupture de SLA |
 
 ---
 
 ## 🏛 Schémas d'Architecture & Conception Technique
 
-### 1. Schéma d'Architecture Globale (ASCII)
+### 1. Architecture Cible & Flux de Données (ASCII)
 
 ```text
-+-----------------------------------------------------------------------------------+
-|                        📱 COUCHE PRÉSENTATION (Jetpack Compose)                   |
-|                                                                                   |
-|  [MainScreen]             [AlertScreen / AlertActivity]     [MailList & Detail]  |
-|  • Toggle Astreinte ON/OFF• Écran d'Urgence Plein Écran     • Lecture des alertes |
-|  • Diagnostic Doze / Batt • Mute / Snooze / Acknowledge     • Filtres & Statuts   |
-|         │                                 │                          │            |
-|         ▼                                 ▼                          ▼            |
-|  [MainViewModel]                  [AlertViewModel]          [MailListViewModel]   |
-+─────────────────────────────────────────┼─────────────────────────────────────────+
-                                          │ UI State (StateFlow) / Actions
++───────────────────────────────────────────────────────────────────────────────────+
+|                         SERVEUR D'ALERTING & SUPERVISION                          |
+|         (Prometheus Alertmanager, Grafana, Datadog, Zabbix, CloudWatch)           |
++─────────────────────────────────────────┬─────────────────────────────────────────+
+                                          │ Email d'incident P1/P2 (SSL/TLS)
                                           ▼
-+-----------------------------------------------------------------------------------+
-|                          ⚙️ COUCHE DOMAINE (Domain Layer)                          |
-|                                                                                   |
-|       [FetchNewMailsUseCase]                 [TriggerAlertUseCase]                |
-|       [AcknowledgeAlertUseCase]              [SnoozeAlertUseCase]                 |
-|                                                                                   |
-|       Entités Métier : Mail, Alert (RINGING, SNOOZED, ACKNOWLEDGED), SnoozeOption |
-|       Contrats / Interfaces : MailRepository, AlertRepository                     |
-+─────────────────────────────────────────┼─────────────────────────────────────────+
-                                          │ Appels métiers purs
++───────────────────────────────────────────────────────────────────────────────────+
+|                  DOSSIER IMAP DÉDIÉ STRICTEMENT CONTRÔLÉ                          |
+|               (ex: INBOX/ONCALL — aucun spam, newsletter ou humain)               |
++─────────────────────────────────────────┬─────────────────────────────────────────+
+                                          │ Protocole IMAP IDLE (RFC 2177)
                                           ▼
-+-----------------------------------------------------------------------------------+
-|                           💾 COUCHE DONNÉES (Data Layer)                          |
++───────────────────────────────────────────────────────────────────────────────────+
+|               SERVICE FOREGROUND D'ASTREINTE : AlertService (Android)              |
 |                                                                                   |
-|   [MailRepositoryImpl]                       [AlertRepositoryImpl]                |
-|          │                                              │                         |
-|   ┌──────┴──────────────────────┬───────────────────────┴──────┐                  |
-|   │                             │                              │                  |
-|   ▼                             ▼                              ▼                  |
-| [ImapClient]           [EncryptedPreferences]           [AppDatabase (Room)]      |
-| • Jakarta Mail         • Android Keystore               • MailDao (Messages)      |
-| • IMAP over SSL/TLS    • MasterKey AES-256 GCM          • AlertDao (Événements)   |
-+───┼────────────────────────────────────────────────────────────┼──────────────────+
-    │ Réseau SSL                                                 │ Persistance locale
-    ▼                                                            ▼
-+──────────────────────────+                     +──────────────────────────────────+
-|  🌐 SERVEUR IMAP DISTANT |                     | 🗄️ STOCKAGE LOCAL SÉCURISÉ       |
-|  (Gmail, Exchange, O365, |                     | • SQLite Chiffré / Room DB       |
-|   Postfix, Dovecot)      |                     | • Purge auto RGPD (30 jours)     |
-+──────────────────────────+                     +──────────────────────────────────+
+|  ┌─────────────────────┐  ┌─────────────────────┐  ┌───────────────────────────┐  |
+|  │  Filtre d'Éligibilité│  │ Déduplication Métier│  │    Base Chiffrée SQLCipher │  |
+|  │  (AlertPolicy MDM)  │  │ (IncidentID / UID)  │  │    Clé Keystore AES-256   │  |
+|  └──────────┬──────────┘  └──────────┬──────────┘  └─────────────┬─────────────┘  |
+|             │                        │                           │                |
+|             └────────────────────────┼───────────────────────────┘                |
+|                                      ▼                                            |
+|                   MOTEUR D'ALARME HAUTE PRIORITÉ ANDROID                          |
+|                   • Flux audio STREAM_ALARM (DND Bypass)                          |
+|                   • Vibreur à motifs cadencés d'urgence                           |
+|                   • WakeLock PowerManager & Affichage plein écran lockscreen      |
++──────────────────────────────────────┬────────────────────────────────────────────+
+                                       │ Télémétrie d'état de santé
+                                       ▼
++───────────────────────────────────────────────────────────────────────────────────+
+|                        TÉLÉMÉTRIE & ÉTATS DE SANTÉ (SLA)                          |
+|                                                                                   |
+|   [ READY ]        --> IMAP IDLE connecté, permissions valides, SLA garanti       |
+|   [ DEGRADED ]     --> Reconnexion en cours, latence passagère                    |
+|   [ ESCALATING ]   --> Rupture SLA (> 3 min sans synchro) : ESCALADE SECONDAIRE ! |
+|   [ BLOCKED ]      --> Configuration absente, auth rejetée, notifications coupées |
+|   [ OFF ]          --> Astreinte inactive                                         |
++───────────────────────────────────────────────────────────────────────────────────+
 ```
 
 ---
 
-### 2. Diagramme Logique (Clean Architecture + MVVM)
-
-```mermaid
-graph TD
-    subgraph UI_Presentation ["📱 Couche Présentation (Jetpack Compose)"]
-        MainActivity["MainActivity & Navigation"]
-        MainScreen["MainScreen\n(Tableau de bord & Toggle Astreinte)"]
-        AlertScreen["AlertScreen / AlertActivity\n(Écran d'Urgence Plein Écran)"]
-        MailListScreen["MailListScreen & MailDetailScreen\n(Consultation des alertes)"]
-        HistoryScreen["AlertHistoryScreen\n(Audit Trail)"]
-        SettingsScreen["SettingsScreen & AccountConfigScreen"]
-        ViewModels["ViewModels\n(MainViewModel, AlertViewModel, etc.)"]
-    end
-
-    subgraph Domain_Layer ["⚙️ Couche Domaine (Business Logic)"]
-        UseCases["Cas d'Usage (Use Cases)\n• FetchNewMailsUseCase\n• TriggerAlertUseCase\n• AcknowledgeAlertUseCase\n• SnoozeAlertUseCase"]
-        DomainModels["Modèles Métier\n(Mail, Alert, AlertStatus, SnoozeOption)"]
-        RepoInterfaces["Interfaces Repository\n(MailRepository, AlertRepository)"]
-    end
-
-    subgraph Data_Layer ["💾 Couche Données (Data Layer)"]
-        RepoImpl["Implémentations\n(MailRepositoryImpl, AlertRepositoryImpl)"]
-        LocalDB["Base de Données Locale\n(Room SQLite : MailDao, AlertDao)"]
-        EncryptedStore["EncryptedPreferences\n(Android Keystore + MasterKey)"]
-        RemoteImap["ImapClient\n(JavaMail / Jakarta IMAP SSL/TLS)"]
-    end
-
-    subgraph Background_Services ["⚡ Services d'Arrière-Plan & Système"]
-        SyncWorker["MailSyncWorker\n(WorkManager, intervalle 60s)"]
-        AlertService["AlertService (Foreground Service)\n• STREAM_ALARM Audio\n• Haptic Vibrator\n• WakeLock PowerManager"]
-        BootReceiver["OnCallReceiver\n(Auto-start au redémarrage)"]
-        CrashSys["CrashReporter (:crash_reporter process)\n(Journalisation d'incidents)"]
-    end
-
-    UI_Presentation --> ViewModels
-    ViewModels --> UseCases
-    UseCases --> DomainModels
-    UseCases --> RepoInterfaces
-    RepoImpl -.->|Implémente| RepoInterfaces
-    RepoImpl --> LocalDB
-    RepoImpl --> EncryptedStore
-    RepoImpl --> RemoteImap
-
-    SyncWorker --> UseCases
-    SyncWorker --> AlertService
-    AlertService --> AlertScreen
-    BootReceiver --> SyncWorker
-```
-
----
-
-### 3. Moteur de Sonnerie & DND Bypass (ASCII)
+### 2. Moteur IMAP IDLE, DND Bypass & Réveil (ASCII)
 
 ```text
-                   RÉCEPTION D'UN EMAIL CRITIQUE EN PLEINE NUIT
+              DÉPÔT D'UN EMAIL CRITIQUE DANS LE DOSSIER D'ASTREINTE
                                         │
-                                        ▼
-             +──────────────────────────────────────────────────────+
-             |         WorkManager : MailSyncWorker (60s)           |
-             |       Détecte un nouvel incident non acquitté        |
-             +──────────────────────────┬───────────────────────────+
-                                        │
-                                        ▼
-             +──────────────────────────────────────────────────────+
-             |           AlertService (Foreground Service)          |
-             |                                                      |
-             |  1. PowerManager.WakeLock ────────> Réveille le CPU  |
-             |  2. AudioAttributes.USAGE_ALARM ──> Force le volume |
-             |  3. AudioManager.STREAM_ALARM ────> BYPASS DND / SIL |
-             |  4. Vibrator (Waveform Haptic) ───> Vibre en boucle  |
-             |  5. USE_FULL_SCREEN_INTENT ───────> Force l'affichage|
-             +──────────────────────────┬───────────────────────────+
+                                        ▼  [Notification instantanée IMAP IDLE]
++───────────────────────────────────────────────────────────────────────────────────+
+|                   AlertService (Service de Premier Plan Actif)                    |
+|                                                                                   |
+|  1. Qualifie le message via AlertPolicy (Expéditeur, Domaine, En-têtes, Regex)    |
+|  2. Déduplique via IncidentId ou UIDVALIDITY + UID (évite toute re-sonnerie)      |
+|  3. Stocke l'incident dans Room DB chiffrée par SQLCipher                         |
+|  4. Active le WakeLock (PowerManager) ──────────> Réveille le processeur CPU      |
+|  5. Configure AudioAttributes.USAGE_ALARM ──────> Bypasse Ne Pas Déranger (DND)   |
+|  6. Déclenche MediaPlayer (STREAM_ALARM) ───────> Alarme stridente en boucle      |
+|  7. Lance VibratorWaveform ─────────────────────> Vibration haptique d'urgence    |
+|  8. Émet le Full-Screen Intent ─────────────────> Réveille l'écran verrouillé     |
++───────────────────────────────────────┬───────────────────────────────────────────+
                                         │
                                         ▼
 +───────────────────────────────────────────────────────────────────────────────────+
-|               📱 AlertActivity (Au-dessus du Lockscreen Android)                   |
+|               📱 AlertActivity (Affichage au-dessus du Lockscreen)                 |
 |                                                                                   |
 |   [turnScreenOn = true]                   [showWhenLocked = true]                 |
 |                                                                                   |
 |   ┌───────────────────────────────────────────────────────────────────────────┐   |
-|   │ 🚨 ALERTE D'ASTREINTE P1 - BASE DE DONNÉES DOWN                          │   |
-|   │ De : monitoring@prod.infra.net   •   Reçu à : 03:14:22                    │   |
+|   │ 🚨 INCIDENT CRITIQUE : [INC-4091] CLUSTER KUBERNETES PROD DOWN            │   |
+|   │ De : alerting@infra.corp   •   Délai de détection : 8 secondes            │   |
 |   │                                                                           │   |
-|   │ [ 🔇 Couper le son ]   [ ⏰ Snooze (5/15/30m) ]   [ ✅ Acquitter ]        │   |
+|   │   [ 🔇 MUTE ]              [ ⏰ SNOOZE (5/15/30m) ]      [ ✅ ACQUITTER ]  │   |
 |   └───────────────────────────────────────────────────────────────────────────┘   |
 +───────────────────────────────────────────────────────────────────────────────────+
 ```
 
 ---
 
-### 4. Diagramme de Composants Android
-
-```mermaid
-flowchart LR
-    IMAP[("🌐 Serveur IMAP\n(Exchange, Gmail, Dovecot)")]
-    
-    subgraph Android_OS ["Plateforme Android"]
-        WM["WorkManager"]
-        Audio["AudioManager\n(STREAM_ALARM)"]
-        Power["PowerManager\n(WakeLock)"]
-        Notif["NotificationManager\n(High Priority Channel)"]
-        KeyStore["Android Keystore"]
-    end
-
-    subgraph Asteintus_Core ["Moteur Asteintus"]
-        Worker["MailSyncWorker"]
-        Client["ImapClient"]
-        Service["AlertService"]
-        Activity["AlertActivity"]
-        DB[("Room Database\n(Cache & Historique)")]
-    end
-
-    WM -->|Déclenche toutes les 60s| Worker
-    Worker -->|Requête IMAP FETCH| Client
-    Client <-->|SSL / TLS| IMAP
-    Worker -->|Sauvegarde nouveaux messages| DB
-    Worker -->|Si nouvel incident| Service
-    Service -->|Wake device| Power
-    Service -->|Sonne à plein volume (DND bypass)| Audio
-    Service -->|Affiche bannière prioritaire| Notif
-    Service -->|Lance plein écran| Activity
-    EncryptedPrefs["EncryptedPreferences"] <-->|Chiffrement matériel| KeyStore
-```
-
----
-
-### 5. Cycle de Vie d'un Incident & Machine à États (ASCII)
+### 3. Machine à États de Santé (Health State Machine)
 
 ```text
-           [ Email d'Incident Détecté ]
-                        │
-                        ▼
-              ┌───────────────────┐
-              │    Statut: NEW    │
-              └─────────┬─────────┘
-                        │ Enregistrement DB & Trigger Alerte
-                        ▼
-              ┌───────────────────┐        🔇 MUTE (Audio coupé)
-              │  Statut: RINGING  │ ─────────────────────────────────┐
-              │  (Alarme + Vibre) │ ◄──────────────────────────────┐ │
-              └─────────┬─────────┘                                │ │
-                        │                                          │ │
-               ┌────────┴──────────────┐                           │ │
-               │                       │                           │ │
-               ▼                       ▼                           │ │
-      ┌──────────────────┐    ┌──────────────────┐                 │ │
-      │ Statut: SNOOZED  │    │Statut:ACKNOWLEDGE│                 │ │
-      │ (5, 15 ou 30 min)│    │ (Incident clos)  │                 │ │
-      └────────┬─────────┘    └──────────────────┘                 │ │
-               │                                                   │ │
-               │ Délai expiré                                      │ │
-               └───────────────────────────────────────────────────┘ │
-                                                                     │
-               (L'ingénieur analyse le problème en silence) ─────────┘
+              ┌──────────────────────────┐
+              │           OFF            │ ◄─── Astreinte désactivée
+              └─────────────┬────────────┘
+                            │ Activation de l'astreinte
+                            ▼
+              ┌──────────────────────────┐
+              │     Vérification MDM     │ ─── Échec config/auth/notifs ───► [ BLOCKED ]
+              └─────────────┬────────────┘
+                            │ Conforme
+                            ▼
+              ┌──────────────────────────┐
+       ┌────► │          READY           │ ◄─── Reconnexion réussie
+       │      │   (IMAP IDLE Actif)      │
+       │      └─────────────┬────────────┘
+       │                    │ Interruption réseau / Socket timeout
+       │                    ▼
+       │      ┌──────────────────────────┐
+       └───── │         DEGRADED         │
+              │ (Reconnexion progressive)│
+              └─────────────┬────────────┘
+                            │ Coupure > 180 secondes (SLA compromis)
+                            ▼
+              ┌──────────────────────────┐
+              │        ESCALATING        │ ───► Déclenchement du canal secondaire
+              │(⚠️ Alerte santé visible)  │      (SMS / Appel / Pager astreint #2)
+              └──────────────────────────┘
 ```
 
 ---
 
-### 6. Diagramme de Séquence Chronologique
+### 4. Cycle de Vie d'un Incident & Traçabilité (ASCII)
+
+```text
+                  [ Arrivée d'un nouveau courriel ]
+                                  │
+                                  ▼
+                        ┌───────────────────┐
+                        │    Statut: NEW    │
+                        └─────────┬─────────┘
+                                  │ Qualification AlertPolicy
+                                  ▼
+                        ┌───────────────────┐
+                        │ Statut: QUALIFIED │
+                        └─────────┬─────────┘
+                                  │ Persistance DB & Déduplication
+                                  ▼
+                        ┌───────────────────┐        🔇 MUTE (Audio coupé)
+                        │  Statut: RINGING  │ ─────────────────────────────────┐
+                        │ (Alarme + Vibre)  │ ◄──────────────────────────────┐ │
+                        └─────────┬─────────┘                                │ │
+                                  │                                          │ │
+                         ┌────────┴──────────────┐                           │ │
+                         │                       │                           │ │
+                         ▼                       ▼                           │ │
+                ┌──────────────────┐    ┌──────────────────┐                 │ │
+                │ Statut: SNOOZED  │    │Statut:ACKNOWLEDGE│                 │ │
+                │ (5, 15 ou 30 min)│    │ (Incident clos)  │                 │ │
+                └────────┬─────────┘    └──────────────────┘                 │ │
+                         │                                                   │ │
+                         │ Expiration du délai                               │ │
+                         └───────────────────────────────────────────────────┘ │
+                                                                               │
+                         (L'ingénieur analyse l'incident en silence) ──────────┘
+```
+
+---
+
+### 5. Diagramme de Séquence Chronologique (Mermaid)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Monitoring as 🖥️ Système de Supervision
-    participant IMAP as 📬 Serveur IMAP
-    participant Worker as 🔄 MailSyncWorker
-    participant DB as 💾 Room Database
-    participant Service as 🚨 AlertService
+    actor Monitoring as 🖥️ Supervision (Alertmanager)
+    participant IMAP as 📬 Serveur IMAP (INBOX/ONCALL)
+    participant Service as 🚨 AlertService (IMAP IDLE)
+    participant DB as 🔒 SQLCipher Encrypted DB
     actor Engineer as 👨‍💻 Ingénieur d'Astreinte
-    participant UI as 📱 AlertActivity
+    participant UI as 📱 AlertActivity (Plein Écran)
 
-    Monitoring->>IMAP: Envoi email d'alerte critique (ex. "P1: DB cluster down")
-    Note over Worker: Cycle de synchronisation périodique (60s)
-    Worker->>IMAP: fetchAndSaveNewMails()
-    IMAP-->>Worker: Liste des nouveaux emails non lus
-    Worker->>DB: Sauvegarde du mail (MailMessageEntity)
-    Worker->>DB: Création de l'événement d'alerte (AlertEventEntity - Status: RINGING)
-    Worker->>Service: Start ForegroundService(ACTION_TRIGGER_ALERT)
-    
+    Note over Service,IMAP: Connexion SSL/TLS maintenue en attente IDLE
+    Monitoring->>IMAP: Envoi email d'urgence (P1: DB Down)
+    IMAP-->>Service: Notification push IMAP IDLE (EXISTS)
     activate Service
-    Service->>Service: Acquire WakeLock (PowerManager)
-    Service->>Service: Démarrage alarme audio (STREAM_ALARM) & Vibreur
-    Service->>UI: Lancement AlertActivity (turnScreenOn + showWhenLocked)
+    Service->>IMAP: FETCH rapide des détails du message
+    IMAP-->>Service: UID, Headers, Expéditeur, Sujet, Corps
+    Service->>Service: isEligible(policy) & Déduplication
+    Service->>DB: Écriture chiffrée (MailMessageEntity & AlertEventEntity)
+    Service->>Service: PowerManager.WakeLock + STREAM_ALARM Audio + Vibreur
+    Service->>UI: Déclenchement plein écran (turnScreenOn + showWhenLocked)
     deactivate Service
 
     activate UI
-    UI-->>Engineer: 🔊 Alarme sonore stridente + Affichage d'urgence
-    alt L'ingénieur coupe le son
+    UI-->>Engineer: 🔊 Alarme sonore stridente (Bypass DND)
+    alt Action : Mute (Couper le son)
         Engineer->>UI: Clic sur "Mute"
-        UI->>Service: ACTION_MUTE (Arrêt son/vibreur, alerte toujours active)
+        UI->>Service: ACTION_MUTE (Arrêt son/vibreur, statut: MUTED)
     end
-    
-    alt Option A : L'ingénieur acquitte l'alerte
-        Engineer->>UI: Clic sur "Acquitter" (Acknowledge)
-        UI->>DB: Mise à jour statut alerte : ACKNOWLEDGED
+
+    alt Option A : Acquittement définitif
+        Engineer->>UI: Clic sur "Acquitter"
+        UI->>DB: Statut: ACKNOWLEDGED (Clôture locale)
         UI->>Service: Arrêt complet de l'alarme
         UI-->>Engineer: Fermeture de l'urgence
-    else Option B : L'ingénieur reporte l'alerte (Snooze)
-        Engineer->>UI: Sélectionne "Snooze 15 min"
-        UI->>DB: Mise à jour statut alerte : SNOOZED (snoozeUntil = Now + 15m)
-        UI->>Service: Arrêt temporaire de l'alarme
-        Note over Worker: 15 minutes plus tard...
-        Worker->>DB: checkAndReactivateSnoozes() -> Expiration détectée
-        Worker->>Service: Relance de l'alarme !
+    else Option B : Report (Snooze 15 min)
+        Engineer->>UI: Clic sur "Snooze 15m"
+        UI->>DB: Statut: SNOOZED (Échéance: Now + 15m)
+        UI->>Service: Arrêt temporaire
+        Note over Service: 15 minutes plus tard...
+        Service->>DB: reactivateExpiredSnoozes() -> Expiration détectée
+        Service->>UI: Re-déclenchement de l'alarme sonore !
     end
     deactivate UI
 ```
 
 ---
 
-## 🛡 Sécurité et Confidentialité (RGPD)
+## 📦 Lots de Réalisation (Chantiers v0.9.0.0)
 
-### Pipeline de Sécurité Matérielle & Rétention (ASCII)
+### Lot 1 : Sécurisation des Données & Surface d'Attaque
+1. **Chiffrement réel de la base Room** :
+   * Remplacement de la base SQLite en clair par **SQLCipher** (`SupportOpenHelperFactory`).
+   * Clé de chiffrement aléatoire 256 bits générée et protégée par l'**Android Keystore** matériel (`MasterKey.KeyScheme.AES256_GCM`).
+   * Détection et purge automatique du cache legacy non chiffré (`asteintus.db`).
+   * Suppression de tout fallback destructif de migration (`fallbackToDestructiveMigration`).
+2. **Durcissement du Crash Reporting** :
+   * Suppression du stockage en texte clair dans SharedPreferences standard.
+   * Nettoyage automatique des traces : caviardage systématique des mots de passe, clés, jetons et adresses e-mails (`[REDACTED]`, `[user]@domain`).
+   * Rétention courte de 7 jours.
+   * Suppression du transport de la stack trace brute complète par Intent extras.
+3. **Durcissement du lecteur HTML** :
+   * Affichage en **texte brut par défaut** (aucun rendu HTML automatique).
+   * Rendu HTML activable manuellement en mode sécurisé : blocage systématique des images distantes et pixels traceurs (`blockNetworkImage = true`), JavaScript désactivé (`javaScriptEnabled = false`), accès fichiers interdit.
+   * Boîte de dialogue de confirmation avant toute ouverture de lien externe dans le navigateur système.
+4. **Réduction des permissions et composants exportés** :
+   * Protection de `OnCallReceiver` avec la permission système stricte `android.permission.RECEIVE_BOOT_COMPLETED`.
+   * Suppression complète des champs et dépendances SMTP inutilisés (l'application étant un récepteur IMAP pur).
 
-```text
-+-----------------------------------------------------------------------------------+
-|                     🛡️ SÉCURITÉ MATÉRIELLE & CYCLE DE VIE RGPD                     |
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|  1. IDENTIFIANTS & MOTS DE PASSE IMAP                                             |
-|     Clé Maître HW (Android Keystore) ──> AES-256 GCM ──> EncryptedSharedPreferences|
-|     (Aucun mot de passe stocké en clair sur le disque ou dans les logs)           |
-|                                                                                   |
-|  2. COMMUNICATIONS EN TRANSIT                                                     |
-|     Applet ──────────── SSL/TLS (Port 993) / STARTTLS ────────────> Serveur Mail  |
-|     (Cleartext Traffic strictement interdit via network_security_config.xml)      |
-|                                                                                   |
-|  3. CYCLE DE RÉTENTION DES DONNÉES (RGPD Art. 5(1)(e))                            |
-|     Chaque exécution de MailSyncWorker :                                          |
-|     Timestamp Actuel - (30 jours * 86400s) = Seuil de péremption                  |
-|               │                                                                   |
-|               ▼                                                                   |
-|     DELETE FROM mails WHERE receivedTime < :seuil                                 |
-|     DELETE FROM alert_events WHERE triggeredTime < :seuil                         |
-|                                                                                   |
-+-----------------------------------------------------------------------------------+
-```
+### Lot 2 : Politique d'Éligibilité (`AlertPolicy`) & Déduplication
+1. **Modèle de politique d'alerte** :
+   * Structure stricte : dossier cible (`mailbox`), expéditeurs autorisés (`allowedSenders`), domaines autorisés (`allowedDomains`), en-têtes obligatoires (`requiredHeaders`), motif de sujet (`subjectPattern` en regex).
+2. **Premier enrôlement silencieux (Initial Silent Cursor)** :
+   * Au premier démarrage ou lors d'un changement de dossier : mémorisation du plus grand UID existant sans déclencher d'alerte sur l'historique passé.
+3. **Déduplication robuste** :
+   * Déduplication prioritaire sur l'identifiant métier d'incident (`X-Incident-ID`, `X-Alert-ID`, regex `INC-XXXXX`).
+   * Fallback fiable sur le couple `UIDVALIDITY + UID` (immunisé contre les réindexations de boîtes).
 
-* **Stockage sécurisé des identifiants** : Les informations d'authentification du serveur IMAP (notamment les mots de passe) ne sont jamais enregistrées en texte clair. Elles sont chiffrées à l'aide de l'API **AndroidX Security Crypto** (`EncryptedSharedPreferences`), qui s'appuie sur une clé principale générée dans l'**Android Keystore** matériel.
-* **Chiffrement en transit** : Toutes les communications avec votre serveur de messagerie s'effectuent via des tunnels chiffrés **SSL/TLS** ou **STARTTLS**. Le trafic en clair est strictement interdit (`usesCleartextTraffic="false"`).
-* **Conformité RGPD (Art. 5(1)(e) - Limitation de conservation)** :
-  * Les métadonnées d'emails, corps de messages et journaux d'alertes sont automatiquement purgés de la base de données locale après **30 jours**.
-* **Respect de la vie privée** : Aucune donnée de messagerie n'est transmise à des tiers ni à des serveurs d'analytique externes. Toutes les opérations de filtrage et d'alerte s'effectuent localement sur l'appareil.
+### Lot 3 : Fiabilité SLA 3 Min & Télémétrie de Santé
+1. **Moteur IMAP IDLE** :
+   * Connexion maintenue par le `AlertService` en avant-plan.
+   * Réémission et rafraîchissement d'IDLE toutes les 15 minutes pour prévenir les fermetures de NAT mobiles.
+   * Reconnexion automatique avec backoff exponentiel borné (5s, 10s, 20s, max 60s).
+2. **Budget de latence mesuré** :
+   * Dépôt serveur ➔ Notification IMAP IDLE : < 30 s
+   * Réseau / Reconnexion normale : < 60 s
+   * Qualification, écriture DB et sonnerie Android : < 15 s
+   * **Total P95 cible : < 180 s (3 minutes)**.
+3. **Télémétrie de santé dynamique** :
+   * Calcul continu de la fraîcheur de synchronisation (`syncAgeSeconds`).
+   * Alerte visuelle et bascule en `ESCALATING` dès que le seuil de 3 minutes est dépassé.
+
+### Lot 4 : Gestion d'Alerte Persistante
+* La base de données Room chiffrée est l'**unique source de vérité**.
+* Au redémarrage du téléphone ou après un arrêt forcé de l'OS :
+  * Rechargement automatique des alertes actives (`PENDING`, `RINGING`, `MUTED`).
+  * Réactivation des alertes en report dont l'échéance est passée (`reactivateExpiredSnoozes`).
+  * Reprise immédiate de la sonnerie d'urgence pour l'incident prioritaire non acquitté.
+
+### Lot 5 : Intégration MDM (Android Enterprise)
+* Support natif des configurations applicatives gérées via `RestrictionsManager` :
+  * `mdm_imap_host`, `mdm_imap_port`, `mdm_mailbox` (défaut : `INBOX/ONCALL`).
+  * `mdm_allowed_senders`, `mdm_allowed_domains`, `mdm_subject_regex`, `mdm_policy_version`.
+* Verrouillage des champs dans l'interface lorsque l'appareil est sous gestion d'entreprise.
+* Prise en compte à chaud des changements de politique sans redémarrage (`ACTION_APPLICATION_RESTRICTIONS_CHANGED`).
+* Vérification de posture de conformité via `PostureChecker` (verrouillage écran, notifications autorisées, exemption Doze mode).
 
 ---
 
-## 📁 Structure Détaillée du Projet
+## 🚀 Guide d'Utilisation & Déploiement
+
+### 1. Configuration du compte IMAP
+1. Rendez-vous dans **Paramètres** ⚙️ puis **Configuration IMAP d'Astreinte**.
+2. Renseignez :
+   * **Adresse email** : l'adresse de la boîte d'astreinte.
+   * **Dossier IMAP dédié** : par exemple `INBOX/ONCALL` (alimenté par règle de filtrage côté serveur).
+   * **Serveur hôte & Port** : `993` avec `SSL/TLS` recommandé.
+   * **Identifiant & Mot de passe** (ou mot de passe d'application).
+3. Cliquez sur **Tester la connexion au dossier**.
+
+### 2. Posture & Autorisations
+* **Notifications** : autorisées obligatoirement.
+* **Exemption d'optimisation batterie** : indispensable pour que le service IDLE ne soit pas gelé par le Doze mode.
+* **Affichage par-dessus les applications** : requis pour le plein écran d'urgence.
+
+### 3. Activation de l'Astreinte
+* Basculez l'interrupteur **« Activer l'astreinte »**.
+* Le bandeau de santé affiche immédiatement :
+  * `SLA < 3 MIN GARANTI • IDLE ACTIF`
+  * Dossier surveillé et compteur de fraîcheur en secondes.
+
+---
+
+## 📁 Structure du Projet
 
 ```text
 app/src/main/java/com/example/
-├── AsteintusApp.kt                # Application principale & configuration des Notification Channels
-├── AppContainer.kt                # Conteneur d'injection de dépendances (Service Locator / Lazy singletons)
-├── AppConstants.kt                # Constantes système (durée de rétention RGPD, expiration certificat)
-├── MainActivity.kt                # Activité hôte principale Jetpack Compose
+├── AsteintusApp.kt                # Init SQLCipher, canaux de notification, récepteur MDM
+├── AppContainer.kt                # Conteneur IoC des repositories et use cases
+├── AppConstants.kt                # Rétention RGPD (30j)
+├── MainActivity.kt                # Hôte Jetpack Compose
 │
 ├── data/
 │   ├── local/
-│   │   ├── db/                    # Base de données Room (AppDatabase, MailDao, AlertDao)
-│   │   └── entity/                # Entités de persistance (MailMessageEntity, AlertEventEntity)
-│   ├── prefs/                     # Préférences sécurisées (EncryptedPreferences, AccountConfig)
-│   ├── remote/imap/               # Client IMAP réseau (ImapClient, RemoteMailMessage via JavaMail)
-│   └── repository/                # Implémentations concrètes des dépôts (MailRepositoryImpl, AlertRepositoryImpl)
+│   │   ├── db/                    # Room DB chiffrée SQLCipher (AppDatabase, MailDao, AlertDao)
+│   │   └── entity/                # Entités avec UIDVALIDITY et DedupKey
+│   ├── mdm/                       # Gestionnaire MDM Android Enterprise (MdmConfigManager)
+│   ├── prefs/                     # EncryptedPreferences (Keystore), DatabaseKeyProvider, AccountConfig
+│   ├── remote/imap/               # ImapClient avec moteur IMAP IDLE et enrôlement silencieux
+│   └── repository/                # Implémentations concrètes (MailRepositoryImpl, AlertRepositoryImpl)
 │
 ├── domain/
-│   ├── model/                     # Modèles métier purs (Mail, Alert, SnoozeOption, MailStatus)
-│   ├── repository/                # Contrats d'interfaces des dépôts
-│   └── usecase/                   # Cas d'utilisation métier (Fetch, Trigger, Acknowledge, Snooze)
+│   ├── model/                     # AlertPolicy, HealthState, HealthTelemetry, Alert, Mail
+│   ├── repository/                # Interfaces de dépôts
+│   └── usecase/                   # Cas d'usage métier
 │
 ├── presentation/
-│   ├── alert/                     # Écran et activité d'urgence (AlertActivity, AlertScreen, AlertViewModel)
-│   ├── main/                      # Tableau de bord principal (MainScreen, MainViewModel)
-│   ├── maillist/                  # Liste des emails reçus (MailListScreen, MailListViewModel)
-│   ├── maildetail/                # Consultation du contenu d'un email (MailDetailScreen, MailDetailViewModel)
-│   ├── history/                   # Journal d'audit des alertes (AlertHistoryScreen, AlertHistoryViewModel)
-│   ├── settings/                  # Paramètres et configuration IMAP (SettingsScreen, AccountConfigScreen)
-│   ├── crash/                     # Écran de diagnostic autonome (CrashReportActivity)
-│   └── navigation/                # Définition des routes de navigation Jetpack Compose
+│   ├── alert/                     # Écran et activité d'urgence (AlertActivity, AlertScreen)
+│   ├── main/                      # Dashboard avec carte de télémétrie SLA et posture (MainScreen, MainViewModel)
+│   ├── maillist/                  # Liste des courriels d'astreinte
+│   ├── maildetail/                # Lecteur durci avec texte brut par défaut et WebView sécurisée
+│   ├── history/                   # Journal d'audit et traçabilité d'incidents
+│   ├── settings/                  # Configuration IMAP et verrouillage MDM
+│   ├── crash/                     # Diagnostic et CrashReportActivity assainie
+│   └── navigation/                # Routes Compose
 │
 ├── service/
-│   ├── AlertService.kt            # Service d'arrière-plan de lecture d'alarme et gestion de la file d'attente
-│   └── OnCallReceiver.kt          # BroadcastReceiver réactivant la surveillance au démarrage de l'OS
+│   ├── AlertService.kt            # Service Foreground IMAP IDLE + Alarme DND STREAM_ALARM
+│   └── OnCallReceiver.kt          # Récepteur de démarrage protégé par RECEIVE_BOOT_COMPLETED
 │
 ├── util/
-│   └── CrashReporter.kt           # Gestionnaire d'exceptions non interceptées (Thread.UncaughtExceptionHandler)
+│   ├── CrashReporter.kt           # Crash reporting sécurisé, traces caviardées, rétention 7j
+│   └── PostureChecker.kt          # Vérification de posture de conformité terminal (Doze, Notifs, Lock)
 │
 └── worker/
-    └── MailSyncWorker.kt          # Travailleur WorkManager exécutant la synchronisation périodique
+    └── MailSyncWorker.kt          # Watchdog et contrôleur de santé WorkManager (purge RGPD 30j)
 ```
 
 ---
 
-## 🛠 Stack Technologique
+## 💻 Compilation & Installation
 
-* **Langage** : Kotlin (100%) avec Coroutines & Asynchronous Flow.
-* **Interface Utilisateur** : Jetpack Compose avec Material Design 3 (M3).
-* **Architecture** : Clean Architecture & MVVM (Unidirectional Data Flow).
-* **Base de Données Locale** : Room Database (SQLite).
-* **Sécurité & Chiffrement** : AndroidX Security Crypto (MasterKey, EncryptedSharedPreferences).
-* **Protocoles Réseau & Mail** : Android Mail / Jakarta Mail API (IMAP over SSL/TLS).
-* **Tâches d'Arrière-Plan** : AndroidX WorkManager & Foreground Services (`mediaPlayback` type).
-* **Gestion d'Énergie** : PowerManager WakeLock ciblé pendant la sonnerie d'alerte.
-* **Tests & Qualité** : Robolectric, JUnit, MockK.
+```bash
+# Compiler la version Debug 0.9.0.0
+gradle :app:assembleDebug
 
----
+# Exécuter les tests unitaires
+gradle :app:testDebugUnitTest
 
-## 💻 Compilation & Déploiement
-
-### Prérequis
-* **Android Studio** Ladybug (ou version plus récente).
-* **JDK** 17 ou supérieur.
-* **Android SDK** API 36 (Minimum SDK API 26 - Android 8.0 Oreo).
-
-### Compilation locale via Gradle
-
-1. Clonez le dépôt sur votre poste :
-   ```bash
-   git clone https://github.com/votre-organisation/asteintus.git
-   cd asteintus
-   ```
-
-2. Créez un fichier `.env` à la racine si nécessaire (en vous basant sur `.env.example`).
-
-3. Compilez la version Debug :
-   ```bash
-   ./gradlew assembleDebug
-   ```
-
-4. L'APK généré se trouvera dans :
-   ```text
-   app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-5. Installez directement sur un terminal Android connecté en débogage USB :
-   ```bash
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
-   ```
+# Installer sur appareil connecté
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ---
 

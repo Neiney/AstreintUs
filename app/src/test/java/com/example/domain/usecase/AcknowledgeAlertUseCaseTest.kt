@@ -19,11 +19,13 @@ class FakeAlertRepository : AlertRepository {
     override fun getAllAlerts(): Flow<List<Alert>> = flowOf(emptyList())
     override fun getPendingAlerts(): Flow<List<Alert>> = flowOf(emptyList())
     override suspend fun getPendingAlertsSync(): List<Alert> = emptyList()
+    override suspend fun getActiveAlertsSync(): List<Alert> = emptyList()
     override fun getAlertById(id: Long): Flow<Alert?> = flowOf(null)
     override suspend fun getAlertByIdSync(id: Long): Alert? = null
-    override suspend fun triggerAlertForMail(mailId: Long): Result<Alert> = Result.success(
+    override suspend fun triggerAlertForMail(mailId: Long, dedupKey: String?, reason: String?): Result<Alert> = Result.success(
         Alert(id = 1, mailId = mailId, mailUid = 10, senderName = "Sender", senderAddress = "s@test.com", subject = "Sub", receivedTime = 0)
     )
+    override suspend fun muteAlert(alertId: Long): Result<Unit> = Result.success(Unit)
     override suspend fun acknowledgeAlert(alertId: Long): Result<Unit> {
         acknowledgedAlertId = alertId
         return Result.success(Unit)

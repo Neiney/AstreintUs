@@ -12,22 +12,22 @@ class OnCallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action == Intent.ACTION_BOOT_COMPLETED || action == "android.intent.action.QUICKBOOT_POWERON") {
-            Log.i(TAG, "Device rebooted. Checking On-Call Mode status...")
+            Log.i(TAG, "Device rebooted. Verifying On-Call standby posture...")
             val app = context.applicationContext as? AsteintusApp ?: return
             val prefs = app.appContainer.encryptedPreferences
 
             if (prefs.isOnCallActive()) {
-                Log.i(TAG, "On-Call mode was active before reboot. Restarting sync and alert service...")
-                // Restart periodic sync
-                MailSyncWorker.startPeriodicSync(context)
-
-                // Start persistent foreground notification
+                Log.i(TAG, "On-Call standby was active prior to reboot. Resuming AlertService and IMAP IDLE...")
+                // Start persistent foreground service & IMAP IDLE
                 val serviceIntent = Intent(context, AlertService::class.java).apply {
                     this.action = AlertService.ACTION_START_ON_CALL_NOTIFICATION
                 }
                 context.startForegroundService(serviceIntent)
+
+                // Schedule watchdog
+                MailSyncWorker.startPeriodicSync(context)
             } else {
-                Log.d(TAG, "On-call mode was inactive. No background service needed.")
+                Log.d(TAG, "On-call standby inactive. No background service started.")
             }
         }
     }

@@ -22,8 +22,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -134,9 +136,11 @@ private fun AlertHistoryCard(alert: Alert, onClick: () -> Unit) {
     val ackDateStr = alert.acknowledgedTime?.let { timeFormatter.format(Date(it)) }
 
     val (statusBg, statusFg, statusIcon) = when (alert.status) {
-        AlertStatus.PENDING -> Triple(Color(0xFFFEE2E2), Color(0xFFDC2626), Icons.Default.NotificationsActive)
+        AlertStatus.NEW, AlertStatus.QUALIFIED, AlertStatus.PENDING, AlertStatus.RINGING -> Triple(Color(0xFFFEE2E2), Color(0xFFDC2626), Icons.Default.NotificationsActive)
+        AlertStatus.MUTED -> Triple(Color(0xFFFEF3C7), Color(0xFFD97706), Icons.Default.NotificationsOff)
         AlertStatus.ACKNOWLEDGED -> Triple(Color(0xFFDCFCE7), Color(0xFF16A34A), Icons.Default.CheckCircle)
         AlertStatus.SNOOZED -> Triple(Color(0xFFFEF3C7), Color(0xFFD97706), Icons.Default.Snooze)
+        AlertStatus.ESCALATED -> Triple(Color(0xFFFEE2E2), Color(0xFF991B1B), Icons.Default.Warning)
     }
 
     Card(

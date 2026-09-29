@@ -184,6 +184,14 @@ fun MainScreen(
                 )
             }
 
+            // SLA Health & IMAP IDLE Status Card (Lot 3)
+            item {
+                HealthTelemetryCard(
+                    telemetry = uiState.healthTelemetry,
+                    isOnCallActive = uiState.isOnCallActive
+                )
+            }
+
             // Battery Optimization Guide Card
             if (uiState.showBatteryPrompt) {
                 item {
@@ -692,5 +700,117 @@ private fun openBatterySettings(context: Context) {
             val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
             context.startActivity(fallbackIntent)
         } catch (_: Exception) {}
+    }
+}
+
+private data class TelemetryDisplayInfo(
+    val bg: Color,
+    val fg: Color,
+    val label: String,
+    val desc: String
+)
+
+@Composable
+private fun HealthTelemetryCard(
+    telemetry: com.example.domain.model.HealthTelemetry,
+    isOnCallActive: Boolean
+) {
+    if (!isOnCallActive) return
+
+    val info = when (telemetry.state) {
+        com.example.domain.model.HealthState.READY -> TelemetryDisplayInfo(
+            bg = Color(0xFFDCFCE7),
+            fg = Color(0xFF16A34A),
+            label = "SLA < 3 MIN GARANTI • IDLE ACTIF",
+            desc = "La boîte ${telemetry.mailbox} est surveillée en temps réel par une connexion IMAP IDLE."
+        )
+        com.example.domain.model.HealthState.DEGRADED -> TelemetryDisplayInfo(
+            bg = Color(0xFFFEF3C7),
+            fg = Color(0xFFD97706),
+            label = "SYNCHRONISATION DÉGRADÉE",
+            desc = telemetry.lastErrorMessage ?: "Reconnexion IMAP en cours suite à une interruption réseau..."
+        )
+        com.example.domain.model.HealthState.ESCALATING -> TelemetryDisplayInfo(
+            bg = Color(0xFFFEE2E2),
+            fg = Color(0xFFDC2626),
+            label = "⚠️ SLA COMPROMIS (> 3 MIN) • CANAL SECONDAIRE REQUIS",
+            desc = "La synchronisation dépasse le délai promis. Déclenchez immédiatement le canal secondaire (SMS/Appel/Pager) !"
+        )
+        com.example.domain.model.HealthState.BLOCKED -> TelemetryDisplayInfo(
+            bg = Color(0xFFFEE2E2),
+            fg = Color(0xFFB91C1C),
+            label = "ASTREINTE BLOQUÉE",
+            desc = telemetry.lastErrorMessage ?: "Vérifiez vos autorisations système ou identifiants IMAP."
+        )
+        com.example.domain.model.HealthState.OFF -> TelemetryDisplayInfo(
+            bg = Color(0xFFF1F5F9),
+            fg = Color(0xFF64748B),
+            label = "ASTREINTE INACTIVE",
+            desc = "Activez l'interrupteur ci-dessus pour surveiller les alertes."
+        )
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = info.bg),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = info.label,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 12.sp,
+                    color = info.fg
+                )
+                if (telemetry.isMdmManaged) {
+                    Surface(
+                        color = Color.White.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "MDM v${telemetry.policyVersion}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E293B),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = info.desc,
+                fontSize = 12.sp,
+                color = info.fg.copy(alpha = 0.9f)
+            )
+
+            if (telemetry.lastHealthySyncTimestamp > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Dossier : ${telemetry.mailbox}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = info.fg.copy(alpha = 0.8f)
+                    )
+                    Text(
+                        text = "Fraîcheur : ${telemetry.syncAgeSeconds}s",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = info.fg
+                    )
+                }
+            }
+        }
     }
 }

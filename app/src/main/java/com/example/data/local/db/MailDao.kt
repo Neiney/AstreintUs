@@ -22,6 +22,12 @@ interface MailDao {
     @Query("SELECT * FROM mail_messages WHERE uid = :uid LIMIT 1")
     suspend fun getMailByUid(uid: Long): MailMessageEntity?
 
+    @Query("SELECT * FROM mail_messages WHERE uid = :uid AND uidValidity = :uidValidity LIMIT 1")
+    suspend fun getMailByUidAndValidity(uid: Long, uidValidity: Long): MailMessageEntity?
+
+    @Query("SELECT MAX(uid) FROM mail_messages WHERE mailbox = :mailbox")
+    suspend fun getMaxUidForMailbox(mailbox: String): Long?
+
     @Query("SELECT MAX(uid) FROM mail_messages")
     suspend fun getMaxUid(): Long?
 

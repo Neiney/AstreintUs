@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.asteintus.wryzqk"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 9000
+    versionName = "0.9.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -115,7 +115,7 @@ dependencies {
   implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation("net.zetetic:sqlcipher-android:4.5.5")
+  implementation("net.zetetic:sqlcipher-android:4.5.5")
   implementation("androidx.sqlite:sqlite-ktx:2.4.0")
   implementation("androidx.biometric:biometric:1.2.0-alpha05")
   implementation(libs.androidx.security.crypto)
