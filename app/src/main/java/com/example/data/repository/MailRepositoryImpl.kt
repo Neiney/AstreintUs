@@ -2,7 +2,6 @@ package com.example.data.repository
 
 import com.example.data.local.db.MailDao
 import com.example.data.local.entity.MailMessageEntity
-import com.example.data.mdm.MdmConfigManager
 import com.example.data.prefs.EncryptedPreferences
 import com.example.data.remote.imap.ImapClient
 import com.example.domain.model.Mail
@@ -32,49 +31,44 @@ class MailRepositoryImpl(
     }
 
     override suspend fun getMailByUid(uid: Long): Mail? {
-        return mailDao.getMailByUid(uid)?.toDomain()
+        return mailDao.getMailByUid(uid, "INBOX/ONCALL")?.toDomain()
     }
 
     override suspend fun updateMailStatus(id: Long, status: MailStatus) {
         mailDao.updateMailStatus(id, status.name)
     }
 
-    override suspend fun fetchAndSaveNewMails(): Result<List<Mail>> {
+    override suspend fun fetchAndSaveNewMails(mailbox: String): Result<List<Mail>> {
         val config = prefs.getAccountConfig()
         if (!config.isConfigured) {
             return Result.failure(IllegalStateException("IMAP Account is not configured."))
         }
 
-        val mailbox = config.mailbox.ifBlank { "INBOX/ONCALL" }
-        val dbMaxUid = mailDao.getMaxUidForMailbox(mailbox) ?: 0L
-        val prefLastUid = prefs.getLastKnownUid(mailbox)
-        val sinceUid = maxOf(dbMaxUid, prefLastUid)
-        val savedValidity = prefs.getFolderUidValidity(mailbox)
+        val cursorResult = imapClient.getCurrentCursor(config, mailbox)
+        if (cursorResult.isFailure) {
+            return Result.failure(cursorResult.exceptionOrNull() ?: IllegalStateException("Unable to read IMAP cursor."))
+        }
+        val cursor = cursorResult.getOrThrow()
+        val sinceUid = prefs.getLastKnownUid(mailbox)
+        val storedUidValidity = prefs.getUidValidity(mailbox)
 
-        val fetchResult = imapClient.fetchNewMessages(config, mailbox, sinceUid, savedValidity)
-        return fetchResult.mapCatching { result ->
-            // Save updated validity
-            if (result.folderUidValidity > 0) {
-                prefs.setFolderUidValidity(mailbox, result.folderUidValidity)
-            }
+        if (sinceUid == 0L || storedUidValidity != cursor.uidValidity) {
+            prefs.setImapCursor(mailbox, cursor.uidValidity, cursor.uid)
+            return Result.success(emptyList())
+        }
 
-            if (result.isFirstEnrollment) {
-                // Initial silent enrollment: record highest UID without alerting
-                prefs.setLastKnownUid(mailbox, result.latestUid)
-                prefs.setInitialEnrollmentDone(mailbox, true)
-                return@mapCatching emptyList()
-            }
-
+        val fetchResult = imapClient.fetchNewMessages(config, sinceUid, mailbox)
+        return fetchResult.mapCatching { remoteList ->
             val newlySaved = mutableListOf<Mail>()
             var highestUid = sinceUid
 
-            for (remote in result.messages) {
-                val existing = mailDao.getMailByUidAndValidity(remote.uid, result.folderUidValidity)
+            for (remote in remoteList) {
+                // Check if already in DB
+                val existing = mailDao.getMailByUid(remote.uid, mailbox)
                 if (existing == null) {
                     val entity = MailMessageEntity(
-                        uid = remote.uid,
-                        uidValidity = result.folderUidValidity,
                         mailbox = mailbox,
+                        uid = remote.uid,
                         senderName = remote.senderName,
                         senderAddress = remote.senderAddress,
                         subject = remote.subject,
@@ -82,8 +76,7 @@ class MailRepositoryImpl(
                         bodyExcerpt = remote.bodyExcerpt,
                         bodyText = remote.bodyText,
                         bodyHtml = remote.bodyHtml,
-                        status = MailStatus.NEW.name,
-                        incidentId = null
+                        status = MailStatus.NEW.name
                     )
                     val insertedId = mailDao.insertMail(entity)
                     newlySaved.add(entity.copy(id = insertedId).toDomain())
@@ -94,7 +87,7 @@ class MailRepositoryImpl(
             }
 
             if (highestUid > sinceUid) {
-                prefs.setLastKnownUid(mailbox, highestUid)
+                prefs.setImapCursor(mailbox, cursor.uidValidity, highestUid)
             }
 
             newlySaved
@@ -108,8 +101,7 @@ class MailRepositoryImpl(
 
     override suspend fun deleteAllMails() {
         mailDao.deleteAllMails()
-        val mailbox = prefs.getAccountConfig().mailbox
-        prefs.setLastKnownUid(mailbox, 0L)
+        prefs.clearImapCursor("INBOX/ONCALL")
     }
 
     private fun MailMessageEntity.toDomain(): Mail {
@@ -120,9 +112,8 @@ class MailRepositoryImpl(
         }
         return Mail(
             id = id,
-            uid = uid,
-            uidValidity = uidValidity,
             mailbox = mailbox,
+            uid = uid,
             senderName = senderName,
             senderAddress = senderAddress,
             subject = subject,
@@ -130,8 +121,7 @@ class MailRepositoryImpl(
             bodyExcerpt = bodyExcerpt,
             bodyText = bodyText,
             bodyHtml = bodyHtml,
-            status = domainStatus,
-            incidentId = incidentId
+            status = domainStatus
         )
     }
 }

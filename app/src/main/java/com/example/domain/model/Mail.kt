@@ -9,9 +9,8 @@ enum class MailStatus {
 
 data class Mail(
     val id: Long = 0,
+    val mailbox: String = "INBOX",
     val uid: Long,
-    val uidValidity: Long = 0L,
-    val mailbox: String = "INBOX/ONCALL",
     val senderName: String,
     val senderAddress: String,
     val subject: String,
@@ -19,6 +18,5 @@ data class Mail(
     val bodyExcerpt: String,
     val bodyText: String,
     val bodyHtml: String? = null,
-    val status: MailStatus = MailStatus.NEW,
-    val incidentId: String? = null
+    val status: MailStatus = MailStatus.NEW
 )

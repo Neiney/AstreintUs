@@ -7,18 +7,14 @@ import android.os.PowerManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.data.mdm.MdmConfigManager
 import com.example.data.prefs.EncryptedPreferences
+import com.example.data.prefs.ManagedAlertPolicy
 import com.example.domain.model.Alert
-import com.example.domain.model.HealthState
-import com.example.domain.model.HealthTelemetry
 import com.example.domain.model.Mail
 import com.example.domain.repository.AlertRepository
 import com.example.domain.repository.MailRepository
 import com.example.service.ActiveAlertState
 import com.example.service.AlertService
-import com.example.util.PostureChecker
-import com.example.util.PostureReport
 import com.example.worker.MailSyncWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,17 +29,18 @@ data class MainUiState(
     val pendingAlertsCount: Int = 0,
     val totalMailsCount: Int = 0,
     val activeAlert: ActiveAlertState = ActiveAlertState(),
-    val healthTelemetry: HealthTelemetry = HealthTelemetry(),
-    val postureReport: PostureReport? = null,
     val isSyncing: Boolean = false,
     val syncMessage: String? = null,
     val showBatteryPrompt: Boolean = false,
+    val lastHealthySync: Long = 0L,
+    val syncHealthError: String? = null,
     val manufacturer: String = Build.MANUFACTURER
 )
 
 class MainViewModel(
     private val context: Context,
     private val prefs: EncryptedPreferences,
+    private val managedAlertPolicy: ManagedAlertPolicy,
     private val mailRepository: MailRepository,
     private val alertRepository: AlertRepository
 ) : ViewModel() {
@@ -55,15 +52,14 @@ class MainViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val activeAlertState: StateFlow<ActiveAlertState> = AlertService.activeAlertState
-    val healthTelemetryState: StateFlow<HealthTelemetry> = AlertService.healthTelemetryFlow
 
     private val _uiState = MutableStateFlow(
         MainUiState(
             isOnCallActive = prefs.isOnCallActive(),
-            isAccountConfigured = prefs.getAccountConfig().isConfigured,
-            healthTelemetry = AlertService.healthTelemetryFlow.value,
-            postureReport = PostureChecker.checkPosture(context),
-            showBatteryPrompt = shouldShowBatteryPrompt()
+            isAccountConfigured = prefs.getAccountConfig().isConfigured && managedAlertPolicy.get().isConfigured,
+            showBatteryPrompt = shouldShowBatteryPrompt(),
+            lastHealthySync = prefs.getLastHealthySync(),
+            syncHealthError = prefs.getLastSyncError()
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -89,33 +85,32 @@ class MainViewModel(
                 _uiState.value = _uiState.value.copy(activeAlert = alertState)
             }
         }
-        viewModelScope.launch {
-            healthTelemetryState.collect { telemetry ->
-                _uiState.value = _uiState.value.copy(healthTelemetry = telemetry)
-            }
-        }
     }
 
     fun refreshConfigState() {
-        val configured = prefs.getAccountConfig().isConfigured
-        val posture = PostureChecker.checkPosture(context)
+        val configured = prefs.getAccountConfig().isConfigured && managedAlertPolicy.get().isConfigured
         _uiState.value = _uiState.value.copy(
             isAccountConfigured = configured,
-            postureReport = posture,
-            showBatteryPrompt = shouldShowBatteryPrompt()
+            showBatteryPrompt = shouldShowBatteryPrompt(),
+            lastHealthySync = prefs.getLastHealthySync(),
+            syncHealthError = prefs.getLastSyncError()
         )
     }
 
     fun toggleOnCallMode(active: Boolean) {
+        if (active && (!prefs.getAccountConfig().isConfigured || !managedAlertPolicy.get().isConfigured)) {
+            _uiState.value = _uiState.value.copy(syncMessage = "Managed on-call policy or IMAP account is incomplete.")
+            return
+        }
         prefs.setOnCallActive(active)
         _uiState.value = _uiState.value.copy(isOnCallActive = active)
 
         if (active) {
+            MailSyncWorker.startPeriodicSync(context)
             val serviceIntent = Intent(context, AlertService::class.java).apply {
                 this.action = AlertService.ACTION_START_ON_CALL_NOTIFICATION
             }
             context.startForegroundService(serviceIntent)
-            MailSyncWorker.startPeriodicSync(context)
         } else {
             MailSyncWorker.cancelSync(context)
             val serviceIntent = Intent(context, AlertService::class.java).apply {
@@ -128,14 +123,15 @@ class MainViewModel(
     fun triggerManualSync() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSyncing = true, syncMessage = null)
-            val result = mailRepository.fetchAndSaveNewMails()
+            val policy = managedAlertPolicy.get()
+            val result = mailRepository.fetchAndSaveNewMails(policy.mailbox)
             if (result.isSuccess) {
                 val newMails = result.getOrDefault(emptyList())
-                val message = if (newMails.isEmpty()) "Dossier d'astreinte à jour." else "${newMails.size} nouveau(x) message(s) reçu(s)."
+                val message = if (newMails.isEmpty()) "Mailbox is up to date." else "Received ${newMails.size} new message(s)."
                 _uiState.value = _uiState.value.copy(isSyncing = false, syncMessage = message)
 
                 if (prefs.isOnCallActive()) {
-                    for (mail in newMails) {
+                    for (mail in newMails.filter { policy.accepts(it.senderAddress, it.subject) }) {
                         alertRepository.triggerAlertForMail(mail.id).onSuccess { alert ->
                             val alertIntent = Intent(context, AlertService::class.java).apply {
                                 action = AlertService.ACTION_TRIGGER_ALERT
@@ -147,8 +143,8 @@ class MainViewModel(
                     }
                 }
             } else {
-                val err = result.exceptionOrNull()?.localizedMessage ?: "Erreur de synchronisation"
-                _uiState.value = _uiState.value.copy(isSyncing = false, syncMessage = "Échec de synchronisation: $err")
+                val err = result.exceptionOrNull()?.localizedMessage ?: "Sync error"
+                _uiState.value = _uiState.value.copy(isSyncing = false, syncMessage = "Sync failed: $err")
             }
         }
     }
@@ -159,11 +155,7 @@ class MainViewModel(
     }
 
     fun quickAcknowledge(alertId: Long) {
-        val intent = Intent(context, AlertService::class.java).apply {
-            action = AlertService.ACTION_ACKNOWLEDGE
-            putExtra(AlertService.EXTRA_ALERT_ID, alertId)
-        }
-        context.startService(intent)
+        AlertService.triggerAcknowledge(context, alertId)
     }
 
     private fun shouldShowBatteryPrompt(): Boolean {
@@ -177,12 +169,13 @@ class MainViewModel(
         fun provideFactory(
             context: Context,
             prefs: EncryptedPreferences,
+            managedAlertPolicy: ManagedAlertPolicy,
             mailRepository: MailRepository,
             alertRepository: AlertRepository
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return MainViewModel(context, prefs, mailRepository, alertRepository) as T
+                return MainViewModel(context, prefs, managedAlertPolicy, mailRepository, alertRepository) as T
             }
         }
     }

@@ -123,7 +123,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Section 1: IMAP / SMTP Shared Mailbox Account
+            // Section 1: IMAP Shared Mailbox Account
             Text(
                 text = "SHARED MAILBOX ACCOUNT",
                 fontSize = 12.sp,
@@ -165,7 +165,7 @@ fun SettingsScreen(
                             text = if (uiState.accountConfig.isConfigured)
                                 "IMAP: ${uiState.accountConfig.imapHost}:${uiState.accountConfig.imapPort} (${uiState.accountConfig.securityType})"
                             else
-                                "Tap to enter shared IMAP / SMTP credentials",
+                                "Tap to enter shared IMAP credentials",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

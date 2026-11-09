@@ -17,11 +17,7 @@ object DatabaseKeyProvider {
         val securePrefs = try {
             createSecurePrefs(context)
         } catch (e: Exception) {
-            android.util.Log.e("DatabaseKeyProvider", "Corrupted encrypted prefs, recreating", e)
-            try {
-                context.deleteSharedPreferences(KEY_PREFS_NAME)
-            } catch (_: Exception) {}
-            createSecurePrefs(context)
+            throw IllegalStateException("Unable to access the database encryption key.", e)
         }
 
         val existingBase64 = securePrefs.getString(KEY_DB_PASSPHRASE, null)

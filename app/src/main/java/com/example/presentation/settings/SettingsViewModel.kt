@@ -152,7 +152,7 @@ class SettingsViewModel(
     fun clearAllData() {
         viewModelScope.launch {
             mailRepository.deleteAllMails()
-            prefs.setLastKnownUid(0L)
+            prefs.clearImapCursor("INBOX/ONCALL")
             loadSettings()
         }
     }

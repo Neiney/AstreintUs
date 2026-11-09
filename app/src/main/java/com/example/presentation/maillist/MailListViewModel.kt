@@ -3,6 +3,7 @@ package com.example.presentation.maillist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.prefs.ManagedAlertPolicy
 import com.example.domain.model.Mail
 import com.example.domain.repository.MailRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,7 +19,8 @@ data class MailListUiState(
 )
 
 class MailListViewModel(
-    private val mailRepository: MailRepository
+    private val mailRepository: MailRepository,
+    private val managedAlertPolicy: ManagedAlertPolicy
 ) : ViewModel() {
 
     val mails: StateFlow<List<Mail>> = mailRepository.getAllMails()
@@ -30,7 +32,7 @@ class MailListViewModel(
     fun refreshMails() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRefreshing = true, errorMessage = null)
-            val result = mailRepository.fetchAndSaveNewMails()
+            val result = mailRepository.fetchAndSaveNewMails(managedAlertPolicy.get().mailbox)
             if (result.isSuccess) {
                 _uiState.value = _uiState.value.copy(isRefreshing = false)
             } else {
@@ -47,11 +49,14 @@ class MailListViewModel(
     }
 
     companion object {
-        fun provideFactory(mailRepository: MailRepository): ViewModelProvider.Factory =
+        fun provideFactory(
+            mailRepository: MailRepository,
+            managedAlertPolicy: ManagedAlertPolicy
+        ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return MailListViewModel(mailRepository) as T
+                    return MailListViewModel(mailRepository, managedAlertPolicy) as T
                 }
             }
     }

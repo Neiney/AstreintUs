@@ -10,7 +10,7 @@ interface MailRepository {
     suspend fun getMailByIdSync(id: Long): Mail?
     suspend fun getMailByUid(uid: Long): Mail?
     suspend fun updateMailStatus(id: Long, status: MailStatus)
-    suspend fun fetchAndSaveNewMails(): Result<List<Mail>>
+    suspend fun fetchAndSaveNewMails(mailbox: String = "INBOX/ONCALL"): Result<List<Mail>>
     suspend fun testConnection(): Result<String>
     suspend fun deleteAllMails()
 }
