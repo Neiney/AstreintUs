@@ -19,17 +19,11 @@ interface MailDao {
     @Query("SELECT * FROM mail_messages WHERE id = :id LIMIT 1")
     suspend fun getMailByIdSync(id: Long): MailMessageEntity?
 
-    @Query("SELECT * FROM mail_messages WHERE uid = :uid LIMIT 1")
-    suspend fun getMailByUid(uid: Long): MailMessageEntity?
-
-    @Query("SELECT * FROM mail_messages WHERE uid = :uid AND uidValidity = :uidValidity LIMIT 1")
-    suspend fun getMailByUidAndValidity(uid: Long, uidValidity: Long): MailMessageEntity?
+    @Query("SELECT * FROM mail_messages WHERE uid = :uid AND mailbox = :mailbox LIMIT 1")
+    suspend fun getMailByUid(uid: Long, mailbox: String): MailMessageEntity?
 
     @Query("SELECT MAX(uid) FROM mail_messages WHERE mailbox = :mailbox")
-    suspend fun getMaxUidForMailbox(mailbox: String): Long?
-
-    @Query("SELECT MAX(uid) FROM mail_messages")
-    suspend fun getMaxUid(): Long?
+    suspend fun getMaxUid(mailbox: String): Long?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMail(mail: MailMessageEntity): Long

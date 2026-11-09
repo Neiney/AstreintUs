@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import com.example.data.local.db.AppDatabase
 import com.example.data.prefs.EncryptedPreferences
+import com.example.data.prefs.ManagedAlertPolicy
 import com.example.data.remote.imap.ImapClient
 import com.example.data.repository.AlertRepositoryImpl
 import com.example.data.repository.MailRepositoryImpl
@@ -21,6 +22,10 @@ class AppContainer(private val context: Context) {
 
     val encryptedPreferences: EncryptedPreferences by lazy {
         EncryptedPreferences(context)
+    }
+
+    val managedAlertPolicy: ManagedAlertPolicy by lazy {
+        ManagedAlertPolicy(context)
     }
 
     val imapClient: ImapClient by lazy {

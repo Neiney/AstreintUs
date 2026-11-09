@@ -26,6 +26,10 @@
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.MyApplication">
 
+        <meta-data
+            android:name="android.content.APP_RESTRICTIONS"
+            android:resource="@xml/app_restrictions" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -62,8 +66,7 @@
 
         <receiver
             android:name=".service.OnCallReceiver"
-            android:exported="true"
-            android:permission="android.permission.RECEIVE_BOOT_COMPLETED"
+            android:exported="false"
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

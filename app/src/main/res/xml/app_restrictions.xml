@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction
+        android:key="oncall_imap_mailbox"
+        android:restrictionType="string"
+        android:title="On-call IMAP mailbox"
+        android:defaultValue="INBOX/ONCALL" />
+    <restriction
+        android:key="oncall_allowed_senders"
+        android:restrictionType="string"
+        android:title="Allowed on-call senders"
+        android:description="Comma-separated email addresses."
+        android:defaultValue="" />
+    <restriction
+        android:key="oncall_subject_prefix"
+        android:restrictionType="string"
+        android:title="Required alert subject prefix"
+        android:defaultValue="[P1]" />
+</restrictions>

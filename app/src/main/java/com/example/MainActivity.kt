@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
         MainViewModel.provideFactory(
             context = applicationContext,
             prefs = app.appContainer.encryptedPreferences,
+            managedAlertPolicy = app.appContainer.managedAlertPolicy,
             mailRepository = app.appContainer.mailRepository,
             alertRepository = app.appContainer.alertRepository
         )
@@ -150,7 +151,10 @@ fun MainAppNavigation(
             // Mailbox Inbox List
             composable(Screen.MailList.route) {
                 val mailListViewModel: MailListViewModel = viewModel(
-                    factory = MailListViewModel.provideFactory(app.appContainer.mailRepository)
+                    factory = MailListViewModel.provideFactory(
+                        app.appContainer.mailRepository,
+                        app.appContainer.managedAlertPolicy
+                    )
                 )
                 val mails by mailListViewModel.mails.collectAsStateWithLifecycle()
                 val uiState by mailListViewModel.uiState.collectAsStateWithLifecycle()
